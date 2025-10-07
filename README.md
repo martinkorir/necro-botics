@@ -3,7 +3,9 @@
 ### Project Ideas
 - Hanging upside down body bag that wriggles.
 - Body bag that wriggles in the bath-tub
+  - 3d Printed Body https://www.thingiverse.com/thing:1114406
 - Baby head wall that follows people that are walking.
+  - Mannequin that follows face https://github.com/rydercalmdown/halloween_mannequin_head
 
 ### Meeting notes
 - Ask Camille if they are going to rent a Porta potty
