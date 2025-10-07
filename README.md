@@ -6,6 +6,8 @@
   - 3d Printed Body https://www.thingiverse.com/thing:1114406
 - Baby head wall that follows people that are walking.
   - Mannequin that follows face https://github.com/rydercalmdown/halloween_mannequin_head
+- Bathroom robot sensor.
+  - Angela recording audio "Wash your hands you filthy animal","Number 1 or Number 2"    
 
 ### Meeting notes
 - Ask Camille if they are going to rent a Porta potty
