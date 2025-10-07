@@ -9,3 +9,7 @@
 
 ### Meeting notes
 - Ask Camille if they are going to rent a Porta potty
+- wood platform for baby heads and drill through 
+- limbo in limbo with donuts
+- bathroom robot talking to you
+- pre-recorded "turn here" 
