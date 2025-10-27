@@ -1,19 +1,22 @@
 /*
-MIT License
-Copyright 2021 Michael Schoeffler (https://www.mschoeffler.com)
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+	MIT License
+	Copyright 2021 Michael Schoeffler (https://www.mschoeffler.com)
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 /*
-* Example source code of an Arduino tutorial on how to control an MG 996R servo motor. 
+ * TODO: states: she gets confused in the reset state
+ * TODO: hardware - diva down!
+	 * TODO: capacitors?
+ * TODO: fluff - different Scan algorithms
 */
 
 #include <Servo.h>
 
 // Debug macros
 #define TEST_SERVOS 0
-#define TEST_SENSORS 0
+#define TEST_SENSORS 1
 #define TEST_STATES 1
 
 //Baby Head Pins or wherever we hook these up to
@@ -26,21 +29,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define DOOR_TRIG 7
 #define DOOR_ECHO 8
 #define HALL_TRIG 2
-#define HALL_ECHO 3
+#define HALL_ECHO 4
 
 // Sensor constants:
-#define DELAY_SENSOR_READ 120 // <- ms
+#define DELAY_SENSOR_READ 30 // <- ms
 #define THRESHOLD_DETECT 50 // <- cm, detection is True if sensor measurement < this 
 #define MAX_US_DURATION (4000UL * 58) // max range is 4m, so this is a good timeout value for pulseIn
 
 // Servo constants:
-#define MIN_WANDER_MS 1000
-#define MAX_WANDER_MS 45000
-#define ANGLE_HALL 180
-#define ANGLE_DOOR 0
+#define MIN_WANDER_MS 13666
+#define MAX_WANDER_MS 31666
+#define ANGLE_HALL 0
+#define ANGLE_DOOR 180
 #define ANGLE_WALL 90
-#define ANGLE_INCREMENT 2 // <- how far to move each servo each time
-#define SERVO_DELAY 20 // <- how long to wait between moving each servo
 
 // Distance conversion macros
 // ref: https://cdn.sparkfun.com/datasheets/Sensors/Proximity/HCSR04.pdf
@@ -68,41 +69,53 @@ enum {
 	STATE_DOOR,
 
 	/* moving to a new position */
-	STATE_MOVING  // 4
+	STATE_MOVING,  // 4
+	/* stay in current position until something happens */
+	STATE_IDLE
 };
 
 struct spookyServo {
 	Servo dev;
-	volatile int currentAngle;
-	volatile int goalAngle;
+	int currentAngle;
+	int goalAngle;
+	// TODO: calibrate - may add an angleOffset field if needed, to account for different baby positions
 };
 
-int currentState = STATE_WALL;
+int currentState = STATE_MOVING;
 
 //total we have 8 servos, I don't quite know how they're going to move
 
-Servo pinheadServo;
+Servo servo_pinhead;
+Servo servo_chatterer;
+Servo servo_butterball;
+Servo servo_angelique;
+
 struct spookyServo pinhead = {
-	.dev = pinheadServo,
-	.currentAngle = 0,
+	.dev = servo_pinhead,
+	.currentAngle = 90,
+	.goalAngle = 90
+};
+struct spookyServo chatterer = {
+	.dev = servo_chatterer,
+	.currentAngle = 90,
+	.goalAngle = 90
+};
+struct spookyServo butterball = {
+	.dev = servo_butterball,
+	.currentAngle = 90,
+	.goalAngle = 90
+};
+struct spookyServo angelique = {
+	.dev = servo_angelique,
+	.currentAngle = 90,
 	.goalAngle = 90
 };
 
-// Servo chatterer;
-// Servo butterball;
-// Servo angelique;
-
-int babies[] = {
-	PINHEAD,
-	//CHATTERER,
-	//BUTTERBALL,
-	//ANGELIQUE
-};
 struct spookyServo * strollers[] = {
 	&pinhead,
-	//chatterer,
-	// butterball,
-	//angelique
+	&chatterer,
+	&butterball,
+	&angelique
 };
 
 
@@ -177,6 +190,10 @@ unsigned long read_sensor_duration(int trig, int echo){
 	digitalWrite(trig, LOW);
 
 	unsigned long duration = pulseIn(echo, HIGH, MAX_US_DURATION);
+#if 0 
+	Serial.println(duration);
+	Serial.println("\n");
+#endif
 
 	return duration;
 }
@@ -185,16 +202,61 @@ bool allServosDone(){
 	int numServos = sizeof(strollers) / sizeof(strollers[0]);
 	for(int i = 0; i<numServos; i++){
 		if(strollers[i]->currentAngle != strollers[i]->goalAngle){
+#if TEST_SERVOS
 			Serial.print(i);
 			Serial.print(": ");
 			Serial.print(strollers[i]->currentAngle);
 			Serial.print("->");
 			Serial.println(strollers[i]->goalAngle);
+#endif
 			return false;
 		}
 	}
+#if TEST_SERVOS
 	Serial.println("All servos done");
+#endif
 	return true;
+}
+
+#define ANGLE_INCREMENT 1 // <- how far to move each servo each time
+#define DELAY_BETWEEN_SERVOS 4 // <- how long to wait between switching movement to a different servo - cumulative delay will be numServos * this
+#define DELAY_SERVO_TICK 4 // <- how long to wait between broader servo movements
+
+void moveServosParallel(){
+	int numServos = sizeof(strollers) / sizeof(strollers[0]);
+	for(int i=0; i<numServos; i++){
+		struct spookyServo *thisServo = strollers[i];
+		if(thisServo->currentAngle < thisServo->goalAngle){
+			thisServo->currentAngle = thisServo->currentAngle + ANGLE_INCREMENT;
+			if(thisServo->currentAngle >= thisServo->goalAngle){
+				thisServo->currentAngle = thisServo->goalAngle;
+			}
+		}
+		else if(thisServo->currentAngle > thisServo->goalAngle){
+			thisServo->currentAngle = thisServo->currentAngle - ANGLE_INCREMENT;
+			if(thisServo->currentAngle <= thisServo->goalAngle){
+				thisServo->currentAngle = thisServo->goalAngle;
+			}
+		}
+		thisServo->dev.write(thisServo->currentAngle);
+#if TEST_SERVOS
+		Serial.print(thisServo->currentAngle);
+		Serial.print(" -> ");
+		Serial.println(thisServo->goalAngle);
+#endif
+		delay(DELAY_BETWEEN_SERVOS);
+	}
+	delay(DELAY_SERVO_TICK);
+}
+
+#define DELAY_SERIES_SERVOS 350
+void moveServosSeries(){
+	int numServos = sizeof(strollers) / sizeof(strollers[0]);
+	for(int i=0; i<numServos; i++){
+		strollers[i]->currentAngle = strollers[i]->goalAngle;
+		strollers[i]->dev.write(strollers[i]->currentAngle);
+		delay(DELAY_SERIES_SERVOS);
+	}
 }
 
 void readDoor(unsigned long currentMillis) {
@@ -253,8 +315,11 @@ void test_sensors(){
  * @brief Sets all `strollers` goal angle to the provided angle.
  */
 void setNewServoGoals(int angle){
-	if(angle > 180 || angle < 0){
-		return;
+	if(angle > 180){
+		angle = 180;
+	}
+	if(angle < 0){
+		angle = 0;
 	}
 	int numServos = sizeof(strollers) / sizeof(strollers[0]);
 	for(int i=0; i<numServos; i++){
@@ -303,9 +368,9 @@ void test_servos(){
 void setup() {
 	// put your setup code here, to run once:
 	pinhead.dev.attach(PINHEAD);
-	//chatterer.attach(CHATTERER);
-	//angelique.attach(ANGELIQUE);
-	//butterball.attach(BUTTERBALL);
+	chatterer.dev.attach(CHATTERER);
+	angelique.dev.attach(ANGELIQUE);
+	butterball.dev.attach(BUTTERBALL);
 
 	//sensor pins
 	pinMode(DOOR_TRIG, OUTPUT);
@@ -314,34 +379,93 @@ void setup() {
 	pinMode(HALL_ECHO, INPUT);
 
 	//pinMode(sensor, INPUT);    // initialize sensor as an input
-	Serial.begin(9600);  // initialize serial
+	Serial.begin(115200);  // initialize serial
 	Serial.println("Lets Go!");
 
-	delay(10);
+	// init the servo positions:
+	int numServos = sizeof(strollers) / sizeof(strollers[0]);
+	for(int i=0; i<numServos; i++){
+		strollers[i]->dev.write(strollers[i]->goalAngle);
+		delay(50);
+	}
 }
 
 void loop() {
 	static unsigned long lastSensorReadMs, nextWanderMs = 0;
-	static bool doorTrigger, hallTrigger;
+	static bool doorTrigger, hallTrigger, wallTrigger = false;
+	static bool wanderActive, wanderWaiting = false;
 	unsigned long currentMillis = millis();
-	static bool wanderTrigger, wanderWaiting = false;
 	// Handle sensor reads:
-	if(currentMillis - lastSensorReadMs > DELAY_SENSOR_READ){
-		doorTrigger = US_TO_CM(read_sensor_duration(DOOR_TRIG, DOOR_ECHO)) < THRESHOLD_DETECT;
-		// hallTrigger = US_TO_CM(read_sensor_duration(HALL_TRIG, HALL_ECHO)) < THRESHOLD_DETECT;
-		hallTrigger = false;
+	if(currentMillis - lastSensorReadMs > 2 * DELAY_SENSOR_READ){
+		unsigned long doorDistance = US_TO_CM(read_sensor_duration(DOOR_TRIG, DOOR_ECHO));
+		if(doorDistance != 0){
+			doorTrigger = doorDistance < THRESHOLD_DETECT;
+		}
+		delay(DELAY_SENSOR_READ);
+		unsigned long hallDistance = US_TO_CM(read_sensor_duration(HALL_TRIG, HALL_ECHO));
+		if(hallDistance != 0){
+			hallTrigger =  hallDistance < THRESHOLD_DETECT;
+			if(hallTrigger){
+				Serial.println("hallTrig");
+			}
+		}
 		lastSensorReadMs = millis();
-		// TODO: this may need more logic depending on sensor noise (average a few readings etc)
+		// TODO: calibrate - this may need more logic depending on sensor noise 
+		// (eg, average a few readings, throw out some, idk)
+#if TEST_SENSORS
+		Serial.print("door: ");
+		Serial.print(doorDistance);
+		Serial.print(", hall: ");
+		Serial.println(hallDistance);
+#endif
 	}
 
 	static bool printed = false;
 
 	int numServos = sizeof(strollers) / sizeof(strollers[0]);
-	volatile bool doneMoving = allServosDone();
+	bool doneMoving = allServosDone();
 	switch(currentState){
-		/*
-		 * STATE_WALL: keep lookin forward, until door, hall, or wander triggers
-		 */
+		/* STATE_IDLE: hold still in one of the 3 positions, wait for sensor */
+		case STATE_IDLE:
+#if TEST_STATES
+			if(!printed){
+				Serial.println("STATE_IDLE");
+				printed = true;
+			}
+#endif
+			// look to door or hall if triggered:
+			// TODO: should IDLE move to HALL if we came here from DOOR?
+			if(doorTrigger || hallTrigger){
+				if(doorTrigger){
+					currentState = STATE_DOOR;
+				}
+				else{
+					currentState = STATE_HALL;
+				}
+				printed = false;
+				break;
+			}
+			else{
+				if(wanderActive){
+					printed = false;
+					currentState = STATE_SCAN;
+					break;
+				}
+				else if(wanderWaiting ){
+					if (((long)(currentMillis - nextWanderMs)) > 0){
+						Serial.println(currentMillis - nextWanderMs);
+						printed = false;
+						currentState = STATE_SCAN;
+						break;
+					}
+				}
+				else{
+					printed = false;
+					currentState = STATE_WALL;
+				}
+			}
+			break;
+		/** STATE_WALL: set up Wander timestamps, look forward */
 		case STATE_WALL:
 #if TEST_STATES
 			if(!printed){
@@ -349,35 +473,22 @@ void loop() {
 				printed = true;
 			}
 #endif
-			if(doorTrigger || hallTrigger){
-				if(doorTrigger){
-					setNewServoGoals(ANGLE_DOOR);
-				}
-				else{
-					setNewServoGoals(ANGLE_HALL);
-				}
-				wanderWaiting = false;
-				wanderTrigger = false;
-				printed = false;
-				currentState = STATE_MOVING;
+			if(!wanderWaiting){
+
+				nextWanderMs = currentMillis + random(MIN_WANDER_MS, MAX_WANDER_MS);
+
+				Serial.print("next wander timestamp: ");
+				Serial.print(nextWanderMs);
+				Serial.print(", current time ");
+				Serial.println(currentMillis);
+
+				wanderWaiting = true;
 			}
-			else if(wanderTrigger){
-				currentState = STATE_SCAN;
-				wanderWaiting = false;
-				wanderTrigger = false;
-				printed = false;
-			}
-			else{
-				if(wanderWaiting){
-					if(nextWanderMs > 0 && (nextWanderMs - currentMillis > 0)){
-						wanderTrigger = true;
-					}
-				}
-				else{
-					nextWanderMs = currentMillis + random(MIN_WANDER_MS, MAX_WANDER_MS);
-					wanderWaiting = true;
-				}
-			}
+			printed = false;
+			setNewServoGoals(ANGLE_WALL);
+			wallTrigger = true;
+			currentState = STATE_MOVING;
+			delay(13);
 			break;
 		case STATE_SCAN:
 #if TEST_STATES
@@ -388,41 +499,49 @@ void loop() {
 #endif
 			static int scanAngle = 0;
 			static int direction = 1;
+			wanderWaiting = false;
+			wanderActive = true;
+			/*
 			if(doorTrigger){
-				Serial.println("Door");
-				setNewServoGoals(ANGLE_DOOR);
 				printed = false;
-				currentState = STATE_MOVING;
+				wanderActive = false;
+				currentState = STATE_DOOR;
+				break;
 			}
 			else if(hallTrigger){
-				Serial.println("Hall");
-				setNewServoGoals(ANGLE_HALL);
+				// setNewServoGoals(ANGLE_HALL);
 				printed = false;
-				currentState = STATE_MOVING;
+				wanderActive = false;
+				currentState = STATE_HALL;
+				break;
 			}
 			else{
-				for(int i=0; i<numServos; i++){
-					if(direction == 1){
-						if(scanAngle >= 180){
-							Serial.println("Switching scan direction");
-							direction = -1;
-						}
-					}
-					else if(direction == -1){
-						if(scanAngle <= 0){
-							setNewServoGoals(ANGLE_WALL);
-							currentState = STATE_MOVING;
-							printed = false;
-							break;
-						}
-					}
-					scanAngle += direction;
-					strollers[i]->dev.write(scanAngle);
-					strollers[i]->currentAngle = scanAngle;
-					strollers[i]->goalAngle = scanAngle;
-					delay(100);
+			*/
+			if(direction >= 0){
+				if(scanAngle >= 180){
+					Serial.println("lookin");
+					direction = -1;
 				}
 			}
+			else{
+				if(scanAngle <= 0){
+					// Finished wandering:
+					wanderActive = false;
+					printed = false;
+					scanAngle = 0;
+					direction = 1;
+					currentState = STATE_IDLE;
+					// TODO: we may even have to let it linger here ..
+					break;
+				}
+				Serial.println(scanAngle);
+			}
+			scanAngle += direction;
+			setNewServoGoals(scanAngle);
+			// delay(SERVO_SCAN_DELAY); // TODO: calibrate - scan speeds
+			printed = false;
+			currentState = STATE_MOVING;
+			/* } */
 			break;
 		case STATE_HALL:
 #if TEST_STATES
@@ -431,11 +550,22 @@ void loop() {
 				printed = true;
 			}
 #endif
-			// TODO: STATE_HALL
-			delay(100);
 			printed = false;
-			setNewServoGoals(ANGLE_WALL);
+			setNewServoGoals(ANGLE_HALL);
+			wanderActive = false;
 			currentState = STATE_MOVING;
+			break;
+		case STATE_DOOR:
+#if TEST_STATES
+			if(!printed){
+				Serial.println("STATE_DOOR");
+				printed = true;
+			}
+#endif
+			setNewServoGoals(ANGLE_DOOR);
+			currentState = STATE_MOVING;
+			printed = false;
+			wanderActive = false;
 			break;
 		case STATE_MOVING:
 #if TEST_STATES
@@ -445,50 +575,31 @@ void loop() {
 			}
 #endif
 			if(!doneMoving){
-				for(int i=0; i<numServos; i++){
-					struct spookyServo *thisServo = strollers[i];
-					if(thisServo->currentAngle < thisServo->goalAngle){
-						thisServo->currentAngle = thisServo->currentAngle + ANGLE_INCREMENT;
-						if(thisServo->currentAngle >= thisServo->goalAngle){
-							thisServo->currentAngle = thisServo->goalAngle;
-						}
-					}
-					else if(thisServo->currentAngle > thisServo->goalAngle){
-						thisServo->currentAngle = thisServo->currentAngle - ANGLE_INCREMENT;
-						if(thisServo->currentAngle <= thisServo->goalAngle){
-							thisServo->currentAngle = thisServo->goalAngle;
-						}
-					}
-					thisServo->dev.write(thisServo->currentAngle);
-					Serial.print(thisServo->currentAngle);
-					Serial.print(" -> ");
-					Serial.println(thisServo->goalAngle);
-					delay(SERVO_DELAY);
+				if(wanderActive || wallTrigger){
+				   moveServosParallel();
+				}
+				else{
+					moveServosSeries();
 				}
 			}
 			else{
 				printed = false;
-				if(strollers[0]->goalAngle == ANGLE_HALL)
-					currentState = STATE_HALL;
-				else if(strollers[0]->goalAngle == ANGLE_DOOR)
-					currentState = STATE_DOOR;
-				else
-					currentState = STATE_WALL;
+				currentState = STATE_IDLE;
+				wallTrigger = false;
 			}
 			break;
 		default:
 			Serial.println("Invalid state");
-			currentState = STATE_WALL;
+			currentState = STATE_IDLE;
 			break;
 	}
 
-#if TEST_SERVOS
+	// delay(13);
+	/*
 	test_servos();
 	delay(120);
-#endif // TEST_SERVOS
 
-#if TEST_SENSORS
 	test_sensors();
 	delay(120);
-#endif // TEST_SENSORS
+	*/
 }
