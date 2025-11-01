@@ -37,16 +37,16 @@
 // Sensor constants:
 #define DELAY_SENSOR_READ 30 // <- ms
 // #define THRESHOLD_DETECT 50 // <- cm, detection is True if sensor measurement < this 
-#define THRESHOLD_DETECT_DOOR 30
-#define THRESHOLD_DETECT_HALL 300
+#define THRESHOLD_DETECT_DOOR 80
+#define THRESHOLD_DETECT_HALL 160
 #define MAX_US_DURATION (4000UL * 58) // max range is 4m, so this is a good timeout value for pulseIn
 
 // Servo constants:
 #define MIN_WANDER_MS 13666
 #define MAX_WANDER_MS 31666
-#define ANGLE_HALL 10 // couch
-#define ANGLE_DOOR 135
-#define ANGLE_WALL 90
+#define ANGLE_HALL 0 // couch
+#define ANGLE_DOOR 180
+#define ANGLE_WALL 160
 
 // Distance conversion macros
 // ref: https://cdn.sparkfun.com/datasheets/Sensors/Proximity/HCSR04.pdf
