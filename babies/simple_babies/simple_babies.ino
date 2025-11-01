@@ -8,7 +8,7 @@
 /*
  * TODO: states: she gets confused in the reset state
  * TODO: hardware - diva down!
-	 * TODO: capacitors?
+ * TODO: capacitors?
  * TODO: fluff - different Scan algorithms
 */
 
@@ -19,28 +19,33 @@
 #define TEST_SENSORS 1
 #define TEST_STATES 1
 
-//Baby Head Pins or wherever we hook these up to
+// Baby Head pins or wherever we hook these up to
 #define PINHEAD 9
 #define CHATTERER 10
 #define BUTTERBALL 11
 #define ANGELIQUE 6
+#define SHITHEAD 5
+#define CRUELLA 3
 
 //Sensor pins
 #define DOOR_TRIG 7
 #define DOOR_ECHO 8
+// "hall" is actually "couch"
 #define HALL_TRIG 2
 #define HALL_ECHO 4
 
 // Sensor constants:
 #define DELAY_SENSOR_READ 30 // <- ms
-#define THRESHOLD_DETECT 50 // <- cm, detection is True if sensor measurement < this 
+// #define THRESHOLD_DETECT 50 // <- cm, detection is True if sensor measurement < this 
+#define THRESHOLD_DETECT_DOOR 30
+#define THRESHOLD_DETECT_HALL 300
 #define MAX_US_DURATION (4000UL * 58) // max range is 4m, so this is a good timeout value for pulseIn
 
 // Servo constants:
 #define MIN_WANDER_MS 13666
 #define MAX_WANDER_MS 31666
-#define ANGLE_HALL 0
-#define ANGLE_DOOR 180
+#define ANGLE_HALL 10 // couch
+#define ANGLE_DOOR 135
 #define ANGLE_WALL 90
 
 // Distance conversion macros
@@ -89,6 +94,8 @@ Servo servo_pinhead;
 Servo servo_chatterer;
 Servo servo_butterball;
 Servo servo_angelique;
+Servo servo_shithead;
+Servo servo_cruella;
 
 struct spookyServo pinhead = {
 	.dev = servo_pinhead,
@@ -110,12 +117,24 @@ struct spookyServo angelique = {
 	.currentAngle = 90,
 	.goalAngle = 90
 };
+struct spookyServo shithead = {
+	.dev = servo_shithead,
+	.currentAngle = 90,
+	.goalAngle = 90
+};
+struct spookyServo cruella = {
+	.dev = servo_cruella,
+	.currentAngle = 90,
+	.goalAngle = 90
+};
 
 struct spookyServo * strollers[] = {
 	&pinhead,
 	&chatterer,
 	&butterball,
-	&angelique
+	&angelique,
+	&shithead,
+	&cruella,
 };
 
 
@@ -371,6 +390,8 @@ void setup() {
 	chatterer.dev.attach(CHATTERER);
 	angelique.dev.attach(ANGELIQUE);
 	butterball.dev.attach(BUTTERBALL);
+	shithead.dev.attach(SHITHEAD);
+	cruella.dev.attach(CRUELLA);
 
 	//sensor pins
 	pinMode(DOOR_TRIG, OUTPUT);
@@ -399,12 +420,12 @@ void loop() {
 	if(currentMillis - lastSensorReadMs > 2 * DELAY_SENSOR_READ){
 		unsigned long doorDistance = US_TO_CM(read_sensor_duration(DOOR_TRIG, DOOR_ECHO));
 		if(doorDistance != 0){
-			doorTrigger = doorDistance < THRESHOLD_DETECT;
+			doorTrigger = doorDistance < THRESHOLD_DETECT_DOOR;
 		}
 		delay(DELAY_SENSOR_READ);
 		unsigned long hallDistance = US_TO_CM(read_sensor_duration(HALL_TRIG, HALL_ECHO));
 		if(hallDistance != 0){
-			hallTrigger =  hallDistance < THRESHOLD_DETECT;
+			hallTrigger =  hallDistance < THRESHOLD_DETECT_HALL;
 			if(hallTrigger){
 				Serial.println("hallTrig");
 			}
